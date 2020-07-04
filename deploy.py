@@ -321,9 +321,9 @@ server_configs = {
         "site_unique_configs": ["https"],
 
         "pre_delete_files": [
-            "{config_root}/sites-enabled/000-default.conf",
-            "{config_root}/conf-enabled/apache2-doc.conf",
-            "{config_root}/conf-enabled/security.conf",
+            "/www/server/panel/vhost/apache/000-default.conf",
+            "/www/server/panel/vhost/apache/apache2-doc.conf",
+            "/www/server/panel/vhost/apache/security.conf",
         ],
 
         "configs": {
