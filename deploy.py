@@ -314,8 +314,8 @@ except:
 
 server_configs = {
     "apache": {
-        "config_root": "/etc/apache2/",
-        "htdoc": "/var/www/",
+        "config_root": "/www/server/apache/conf/",
+        "htdoc": "/www/wwwroot/",
 
         "common_configs": ["http_generic", "apache_boilerplate"],
         "site_unique_configs": ["https"],
@@ -482,25 +482,6 @@ try:
         cmd('apt-get -y -q install openssl', allow_failure=True)
     except:
         pass
-
-    # 如果安装了, 则可以启用http2
-    ppa_available = cmd('apt-get -y -q install software-properties-common python-software-properties', allow_failure=True)
-
-    if distro.id() == 'ubuntu' and ppa_available:
-        # 安装高版本的Apache2(支持http2), 仅限ubuntu
-        cmd("""LC_ALL=C.UTF-8 add-apt-repository -y ppa:ondrej/apache2 &&
-    apt-key update &&
-    apt-get -y -q update &&
-    apt-get -y -q install apache2""")
-    else:
-        # debian 只有低版本的可以用
-        cmd("apt-get -y -q install apache2")
-
-    cmd("""a2enmod rewrite mime include headers filter expires deflate autoindex setenvif ssl""")
-
-    if not cmd("a2enmod http2", allow_failure=True):
-        warnprint("[Warning!] your server does not support http2")
-        sleep(0.5)
 
     # (可选) 更新一下各种包
     if not (distro.id() == 'ubuntu' and distro.version() == '14.04'):  # 系统不是ubuntu 14.04
@@ -765,7 +746,8 @@ try:
         dump_settings()
 
         if already_have_cert:
-            # noinspection PyUnboundLocalVariable
+            # noinspection PyUnboundLocal
+            Variable
             mirrors_settings[mirror_type]['certs']['private_key'] = private_key
             # noinspection PyUnboundLocalVariable
             mirrors_settings[mirror_type]['certs']['cert'] = cert
@@ -861,85 +843,9 @@ try:
         infoprint('installation abort manually.')
         raise SystemExit('abort manually.')
 
-    # ############### Really Install ###################
-    if not already_have_cert:
-        # 通过 letsencrypt 获取HTTPS证书
-        infoprint("Fetching HTTPS certifications")
-        cmd("service apache2 stop", no_tee=True)  # 先关掉apache
-        for mirror in mirrors_to_deploy:
-            domain = mirrors_settings[mirror]['domain']
+   
 
-            if os.path.exists('/etc/letsencrypt/live/{domain}'.format(domain=domain)):
-                # 如果证书已存在, 则跳过
-                warnprint("Certification for {domain} already exists, skipping".format(domain=domain))
-                sleep(0.2)
-                continue
 
-            infoprint("Obtaining: {domain}".format(domain=domain))
-            i = 0
-            try_limit = 5
-            certbot_cmd = (
-                '/etc/certbot/certbot-auto certonly -n --agree-tos -t -m "{email}" --standalone -d "{domain}" '
-            ).format(email=email, domain=domain)
-            seconds_to_wait = 4
-            while True:
-                i += 1
-                seconds_to_wait += i
-                try:
-                    result = cmd(certbot_cmd, cwd='/etc/certbot/', allow_failure=True)
-
-                    # 检查是否成功获取证书(文件是否存在)
-                    if not result or not os.path.exists('/etc/letsencrypt/live/{domain}'.format(domain=domain)):
-                        warnprint("cert file for {domain} does not exist!".format(domain=domain))
-                        raise RuntimeError("cert file for {domain} does not exist!".format(domain=domain))
-
-                except:
-                    warnprint("unable to obtaining cert for {domain}".format(domain=domain))
-                    if i <= try_limit:
-                        infoprint("wait {} seconds and retry. ({}/{})".format(seconds_to_wait, i, try_limit))
-                        onekey_report(
-                            report_type=REPORT_ERROR,
-                            traceback_str=traceback.format_exc(),
-                            msg="({}/{})".format(i, try_limit),
-                        )
-                        for _ in range(seconds_to_wait - 1, 0, -1):
-                            sleep(1)
-                            infoprint(_, "...")
-                    else:
-                        errprint(
-                            "\n"
-                            "I'm really sorry that we are not able to obtain an cert now, \n"
-                            "    This problem is NOT caused by zmirror-onekey itself, but caused by your DNS setting or "
-                            "the let's encrypt server. \n"
-                            "    If you had already set your A record correctly, "
-                            "please retry and wait, because sometimes the "
-                            "let's encrypt server may takes minutes or even hours to recognize your DNS settings.\n"
-                            "    If you doesn't sure whether your DNS A record are correct, please check it using "
-                            "https://www.whatsmydns.net/\n"
-                            "    Meanwhile, you can obtain cert manually using:" + certbot_cmd
-                        )
-                        importantprint("For more information, please see http://tinyurl.com/zmcert")
-                        importantprint("For more information, please see http://tinyurl.com/zmcert")
-                        importantprint("For more information, please see http://tinyurl.com/zmcert")
-                        importantprint("For more information, please see http://tinyurl.com/zmcert")
-                        ch = input("max retries exceed, do you want to continue retry?(Y/n) ")
-                        if ch in ("N", "n", "No", "no", "NO", "none", "None"):
-                            errprint("Aborting...")
-                            raise
-                        else:
-                            try_limit += 100
-
-                else:
-                    infoprint("Succeed: {domain}".format(domain=domain))
-                    break
-
-        cmd("service apache2 start",  # 重新启动apache
-            # ubuntu14.04下, 使用tee会出现无法正常退出的bug, 所以禁用掉
-            no_tee=True, allow_failure=True,
-            )
-
-    else:  # 选择自己提供证书
-        infoprint("skipping let's encrypt, for you already provided your cert")
 
     # ####### 安装zmirror自身 #############
     infoprint('Successfully obtain SSL cert, now installing zmirror itself...')
@@ -1124,18 +1030,6 @@ try:
     # ##### Add linux cron script for letsencrypt auto renewal ######
     if not os.path.exists("/etc/cron.weekly/zmirror-letsencrypt-renew.sh") \
             or already_have_cert:  # 若脚本已存在, 或者选择自己提供证书, 则跳过
-        # 添加 let's encrypt 证书自动更新脚本
-        infoprint("Adding cert auto renew script to `/etc/cron.weekly/zmirror-letsencrypt-renew.sh`")
-        cron_script = """#!/bin/bash
-cd /etc/certbot
-/etc/certbot/certbot-auto renew -n --agree-tos --standalone --pre-hook "/usr/sbin/service apache2 stop" --post-hook "/usr/sbin/service apache2 start"
-exit 0
-"""
-        with open("/etc/cron.weekly/zmirror-letsencrypt-renew.sh", "w", encoding='utf-8') as fp:
-            fp.write(cron_script)
-
-        cmd('chmod +x /etc/cron.weekly/zmirror-letsencrypt-renew.sh')
-        cmd('/etc/cron.weekly/zmirror-letsencrypt-renew.sh')
 
     # 重启一下apache
     infoprint("Restarting apache2")
